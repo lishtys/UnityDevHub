@@ -1,4 +1,5 @@
-﻿using UnityEngine;
+﻿using System;
+using UnityEngine;
 
 namespace SlidingSphere
 {
@@ -6,16 +7,31 @@ namespace SlidingSphere
     {
         [SerializeField,Range(0f,100f)]
         private float maxSpeed = 10f;
-        private Vector3 velocity;
+
+        private Vector3 velocity, desiredVelocity;
         [SerializeField, Range(0f, 100f)]
-        float maxAcceleration = 10f;
-        [SerializeField, Range(0f, 1f)]
-        float bounciness = 0.5f;
+        float maxAcceleration = 10f, maxAirAcceleration = 1f;
+        [Header("Jump")]
+        private bool desiredJump;
+        [SerializeField, Range(0f, 10f)]
+        float jumpHeight = 2f;
+        [SerializeField, Range(0, 5)]
+        int maxAirJumps = 0;
+        [SerializeField,Range(0,5)]
+        private int jumpPhase;
         
-        [SerializeField]
-        Rect allowedArea = new Rect(-5f, -5f, 10f, 10f);
+        [Header("Physics")]
+        private Rigidbody body;
+
+        [Header("Status")] private bool onGround;
+
         
-        
+        private void Awake()
+        {
+            body = GetComponent<Rigidbody>();
+        }
+
+
         // Update is called once per frame
         void Update()
         {
@@ -23,32 +39,70 @@ namespace SlidingSphere
             playerInput.x = Input.GetAxis("Horizontal");
             playerInput.y = Input.GetAxis("Vertical");
             playerInput =Vector2.ClampMagnitude(playerInput,1f);
-            var desiredVelocity=new Vector3(playerInput.x,0,playerInput.y)*maxSpeed;
-            float maxSpeedChange = maxAcceleration*Time.deltaTime;
+            desiredVelocity=new Vector3(playerInput.x,0,playerInput.y)*maxSpeed;
+            desiredJump |= Input.GetButtonDown("Jump");
+        }
+
+        private void FixedUpdate()
+        {
+            UpdateState();
+            float acceleration = onGround ? maxAcceleration : maxAirAcceleration;
+            float maxSpeedChange = acceleration*Time.deltaTime;
             velocity.x= Mathf.MoveTowards(velocity.x,desiredVelocity.x, maxSpeedChange);
             velocity.z= Mathf.MoveTowards(velocity.z,desiredVelocity.z, maxSpeedChange);
-            var displacement = velocity * Time.deltaTime;
-            Vector3 newPosition = transform.localPosition + displacement;
-          
-            // Clamp
-            if (newPosition.x < allowedArea.xMin) {
-                newPosition.x = allowedArea.xMin;
-                velocity.x = -velocity.x * bounciness;
+            if (desiredJump)
+            {
+                desiredJump = false;
+                Jump();
             }
-            else if (newPosition.x > allowedArea.xMax) {
-                newPosition.x = allowedArea.xMax;
-                velocity.x = -velocity.x * bounciness;
-            }
-            if (newPosition.z < allowedArea.yMin) {
-                newPosition.z = allowedArea.yMin;
-                velocity.z = -velocity.z * bounciness;
-            }
-            else if (newPosition.z > allowedArea.yMax) {
-                newPosition.z = allowedArea.yMax;
-                velocity.z = -velocity.z * bounciness;
-            }
-            transform.localPosition = newPosition;
-
+            
+            
+            onGround = false;
+            body.velocity=velocity;
         }
+
+        void UpdateState()
+        {
+            velocity = body.velocity;
+            if (onGround)
+            {
+                jumpPhase = 0;
+            }
+        }
+
+        private void Jump()
+        {
+            // based on Newton's law
+            if (onGround || jumpPhase < maxAirJumps)
+            {
+                jumpPhase++;
+                float jumpSpeed = Mathf.Sqrt(-2f * Physics.gravity.y * jumpHeight);
+                if (velocity.y > 0f) {
+                    jumpSpeed = Mathf.Max(jumpSpeed - velocity.y, 0f);
+                }
+                velocity.y += jumpSpeed;
+            }
+        }
+
+         void OnCollisionEnter(Collision other)
+         {
+             if(onGround)
+                 onGround = true;
+             
+             EvaluateCollision(other);
+         }
+         void OnCollisionStay (Collision other) {
+             onGround = true;
+         }
+
+         void EvaluateCollision(Collision collision)
+         {
+             for (int i = 0; i < collision.contactCount; i++) {
+                 Vector3 normal = collision.GetContact(i).normal;
+                 onGround |= normal.y>=0.9f;
+             }
+         }
+         
+         
     }
 }
